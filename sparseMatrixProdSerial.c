@@ -99,25 +99,42 @@ void sprstp(float sa[], unsigned long ija[], float sb[], unsigned long ijb[]) {
 /*
  * sprstm
  * */
+/*
+ * Notice that, according to the storage rules, the value of N
+(namely 5) is ija[1]-2, and the length of each array is ija[ija[1]-1]-1, namely 11.
+The diagonal element in row i is sa[i], and the off-diagonal elements in that row are in
+sa[k] where k loops from ija[i] to ija[i+1]-1, if the upper limit is greater or equal to
+the lower one (as in C’s for loops).
+ * */
 int sprstm(float sa[], unsigned long ija[], float sb[], unsigned long ijb[],
            float thresh, unsigned long nmax, float sc[], unsigned long ijc[]) {
     unsigned long i, ijma, ijmb, j, k, ma, mb, mbb;
     float sum;
-    if (ija[1] != ijb[1]) nrerror("sprstm: sizes do not match");//L'elemento 1 ha le size.... di cosa?
-    ijc[1] = k = ija[1];//la size del risultato è uguale a quella di a e b
-    for (i = 1; i <= ija[1] - 2; i++) {
+    if (ija[1] != ijb[1]) nrerror("sprstm: sizes do not match");//Check if matrices have the same size
+    ijc[1] = k = ija[1];//c size is the same as input matrices size
+    for (i = 1; i <= ija[1] - 2; i++) {//iterate from 1 to N of A
         //Loop over rows of A,
-        for (j = 1; j <= ijb[1] - 2; j++) {
+        for (j = 1; j <= ijb[1] - 2; j++) {//iterate from 1 to N of B
             //and rows of B.
-            if (i == j) sum = sa[i] * sb[j]; else sum = 0.0e0;
+
+            /*
+             * La moltiplicazione degli elementi sulla diagonale tra di loro avviene solamente se i==j
+             * */
+            if (i == j) {
+                sum = sa[i] * sb[j];
+            }
+            else {
+                sum = 0.0e0;
+            }
+
+
+
             mb = ijb[j];
-            for (ma = ija[i]; ma <= ija[i + 1] - 1; ma++) {
-                //Loop through elements in A’s row. Convoluted logic, following, accounts for the
-                //various combinations of diagonal and off-diagonal elements.
+            for (ma = ija[i]; ma <= ija[i + 1] - 1; ma++) {//loop over elements of row i of A
                 ijma = ija[ma];
                 if (ijma == j) sum += sa[ma] * sb[j];
                 else {
-                    while (mb < ijb[j + 1]) {
+                    while (mb < ijb[j + 1]) {//loop over elements of row i of B
                         ijmb = ijb[mb];
                         if (ijmb == i) {
                             sum += sa[i] * sb[mb++];
@@ -137,6 +154,8 @@ int sprstm(float sa[], unsigned long ija[], float sb[], unsigned long ijb[],
                 //Exhaust the remainder of B’s row.
                 if (ijb[mbb] == i) sum += sa[i] * sb[mbb];
             }
+
+
             if (i == j)
                 sc[i] = sum;
                 //Where to put the answer...
