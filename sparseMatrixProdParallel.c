@@ -5,6 +5,9 @@
 #include <time.h>
 #include <stdlib.h>
 #define NOT_NULL_ELEMENTS 9
+#define NMAX_A 12
+#define NMAX_B 20
+#define NMAX_C 20
 
 float ** initBookMat(){
     float ** inputMat=malloc(sizeof *inputMat * (5 +1) );
@@ -193,6 +196,8 @@ void sprstp(float sa[], unsigned long ija[], float sb[], unsigned long ijb[]) {
 
 
 int main(int argc, char *argv[]) {
+
+
     int cntSend=0;
     int cntRcv=0;
     int size, rank, rc;
@@ -205,27 +210,100 @@ int main(int argc, char *argv[]) {
     if (rank == 0) {
         float **matA=initBookMat();
         float **matB=initRandMat(6,6);
-
         /*Convert matrices in row-indexed sparse storage mode*/
-        float saA[12];
-        long ijaA[12];
-        sprsin(matA, 5, 0.1, 11, saA, ijaA);
+        float sA[NMAX_A];
+        long ijA[NMAX_A];
+        sprsin(matA, 5, 0.1, NMAX_A-1, sA, ijA);
         printf("Sprsin #1 executed\n");
-        float saB[20];
-        long ijaB[20];
-        sprsin(matB, 5, 0.1, 19, saB, ijaB);
+        float sB[NMAX_B];
+        long ijB[NMAX_B];
+        sprsin(matB, 5, 0.1, NMAX_B-1, sB, ijB);
         printf("Sprsin #2 executed\n");
-
         /*Transpose matrix B*/
-        float sbB[20];
-        long ijbB[20];
-        sprstp(saB,ijaB, sbB, ijbB);
+        float sBt[NMAX_B];
+        long ijBt[NMAX_B];
+        sprstp(sB,ijB, sBt, ijBt);
         printf("Sprstp executed\n");
 
+
+
         /*Distribute the workload among the slaves*/
+
+        /*Send sA, ijA, sB, ijB to all the salves*/
+        int i;
+        for (i=1; i<size; i++) {
+            MPI_Send(&sA, NMAX_A, MPI_FLOAT, i,0, MPI_COMM_WORLD);
+            cntSend++;
+            MPI_Send(&ijA,NMAX_A, MPI_LONG, i,0, MPI_COMM_WORLD);
+            cntSend++;
+
+            MPI_Send(&sBt,  NMAX_B, MPI_FLOAT, i,0, MPI_COMM_WORLD);
+            cntSend++;
+            MPI_Send(&ijBt, NMAX_B, MPI_LONG, i,0, MPI_COMM_WORLD);
+            cntSend++;
+        }
+
+        /*
+         * Iterate over rows of A
+         *  Iterate over rows of B
+         *      -receive when freeProcessors == 0
+         *      -send(i, j, counter) to next slave
+         *      -increment counter and decrement freeProcessor
+         *
+         * */
+
+        /*
+         * Send SIGTERM
+         * */
+
+        /*
+         * Compose result
+         * */
     }
     else {
         printf("I'm the slave #%d \n",rank);
+        /*Receive sA, ijA, sB, ijB*/
+        float sA[12];
+        long ijA[12];
+        float sBt[20];
+        long ijBt[20];
+        MPI_Recv(sA,  NMAX_A, MPI_FLOAT, 0, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
+        MPI_Recv(ijA, NMAX_A, MPI_LONG,  0, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
+        MPI_Recv(sBt,  NMAX_B, MPI_FLOAT, 0, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
+        MPI_Recv(ijBt, NMAX_B, MPI_LONG,  0, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
+
+        if(rank==1){
+            int i;
+            printf("SA: ");
+            for(i=1; i<NMAX_A;i++){
+                printf("| %f |",sA[i]);
+            }
+            printf("\n");
+
+            printf("IJA: ");
+            for(i=1; i<NMAX_A;i++){
+                printf("| %d |",ijA[i]);
+            }
+            printf("\n");
+
+            printf("SB: ");
+            for(i=1; i<NMAX_B;i++){
+                printf("| %f |",sBt[i]);
+            }
+            printf("\n");
+
+            printf("IJB: ");
+            for(i=1; i<NMAX_B;i++){
+                printf("| %d |",ijBt[i]);
+            }
+            printf("\n");
+
+        }
+        /*
+         * Receive (i, j, counter) until receive SIGTERM
+         *  Given i, j compute sc, ijc
+         *  Send sc, ijc, counter
+         * */
     }
     double end = MPI_Wtime();
     MPI_FINALIZE();
