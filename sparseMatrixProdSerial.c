@@ -150,16 +150,8 @@ int sprstm(float sa[], unsigned long ija[], float sb[], unsigned long ijb[],
     }
 }
 
-int main(int argc, char *argv[]) {
-    /*
-     * RICORDA che questo bellissimo libro conta a partire da 1 e non da 0, che figata
-     * Comportati di conseguenza
-     * */
-    int row=SIZE;
-    int col=SIZE;
-
-    /*Alloca Matrice del libro*/
-    float **inputMat=malloc(sizeof *inputMat * (5 +1) );
+float ** initBookMat(){
+    float ** inputMat=malloc(sizeof *inputMat * (5 +1) );
     inputMat[1]=malloc(sizeof *inputMat[1] * (5+1));
     inputMat[1][1]=3;
     inputMat[1][2]=0;
@@ -203,30 +195,22 @@ int main(int argc, char *argv[]) {
         printf("\n");
     }
 
-
-    /*
-     * Converti matrice libro
-     * */
-    float sa[12];
-    long ija[12];
-    sprsin(inputMat, 5, 0.1, 11, sa, ija);
-
-    /*
-     * Alloca matrice 2
-     * */
-    float **inputMat2=malloc(sizeof *inputMat2 * (row +1) );
-    for (int i = 1; i <= row; i++)
+    return inputMat;
+}
+float ** initRandMat(int rows, int cols){
+    float **inputMat2=malloc(sizeof *inputMat2 * (rows +1) );
+    for (int i = 1; i <= rows; i++)
     {
         /*
          * per ogni cella della prima riga alloco la colonna corrispondente,
          * in pratica espando lo spazio di memoria occupato dalla cella
          * lo spazio occupato dalla cella passa da sizeof float a sizeof float * col
          * */
-        inputMat2[i] = malloc(sizeof *inputMat2[i] * (col+1));
+        inputMat2[i] = malloc(sizeof *inputMat2[i] * (cols+1));
         if (inputMat2[i])
         {
             size_t j;
-            for (j = 1; j <= col; j++)
+            for (j = 1; j <= cols; j++)
             {
                 inputMat2[i][j] = 0;
                 if(i==j){
@@ -242,23 +226,48 @@ int main(int argc, char *argv[]) {
     srand(time(NULL));
     for(int i=0; i< NOT_NULL_ELEMENTS;i++){
 
-        int row_index = rand()%(row)+1;
-        int col_index = rand()%(col)+1;
+        int rows_index = rand()%(rows)+1;
+        int col_index = rand()%(cols)+1;
         int rand_value = rand()%1000;
-        inputMat2[row_index][col_index]=rand_value;
+        inputMat2[rows_index][col_index]=rand_value;
     }
 
     /*
      * Print matrice 2
      * */
     printf("**********Matrice B***********\n");
-    for (int i = 1; i <= row; i++){
-        for (int j = 1; j <= col; j++)
+    for (int i = 1; i <= rows; i++){
+        for (int j = 1; j <= cols; j++)
         {
             printf(" |%f| ",inputMat2[i][j]);
         }
         printf("\n");
     }
+
+    return inputMat2;
+}
+
+
+int main(int argc, char *argv[]) {
+    /*
+     * RICORDA che questo bellissimo libro conta a partire da 1 e non da 0, che figata
+     * Comportati di conseguenza
+     * */
+
+    /*Alloca Matrice del libro*/
+    float **inputMat=initBookMat();
+
+    /*
+     * Converti matrice libro
+     * */
+    float sa[12];
+    long ija[12];
+    sprsin(inputMat, 5, 0.1, 11, sa, ija);
+
+    /*
+     * Alloca matrice 2
+     * */
+    float **inputMat2=initRandMat(6,6);
 
     /*
      * Converti matrice2
@@ -283,3 +292,4 @@ int main(int argc, char *argv[]) {
     sprstm( sa,ija, sb2, ijb2, 0.1, 99, sc, ijc);
 
 }
+
