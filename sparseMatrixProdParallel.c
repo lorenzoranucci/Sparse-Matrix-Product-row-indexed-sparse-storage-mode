@@ -7,8 +7,9 @@
 #define FINALIZE 300
 #define NOT_NULL_ELEMENTS 9
 #define NMAX_A 12
-#define NMAX_B 20
+#define NMAX_B 12
 #define NMAX_C 20
+#define TRESH 0.0
 
 float ** initBookMat(){
     float ** inputMat=malloc(sizeof *inputMat * (5 +1) );
@@ -210,7 +211,8 @@ int main(int argc, char *argv[]) {
 
     if (rank == 0) {
         float **matA=initBookMat();
-        float **matB=initRandMat(6,6);
+        //float **matB=initRandMat(6,6);
+        float **matB=initBookMat();
         /*Convert matrices in row-indexed sparse storage mode*/
         float sA[NMAX_A];
         long ijA[NMAX_A];
@@ -232,6 +234,7 @@ int main(int argc, char *argv[]) {
 
         /*Send sA, ijA, sB, ijB to all the salves*/
         int i;
+        int j;
         for (i=1; i<size; i++) {
             MPI_Send(&sA, NMAX_A, MPI_FLOAT, i,0, MPI_COMM_WORLD);
             cntSend++;
@@ -243,6 +246,7 @@ int main(int argc, char *argv[]) {
             MPI_Send(&ijBt, NMAX_B, MPI_LONG, i,0, MPI_COMM_WORLD);
             cntSend++;
         }
+        printf("I'm the master, sA, ijA, sBt, ijBt sent \n");
 
         /*
          * Iterate over rows of A
@@ -254,68 +258,86 @@ int main(int argc, char *argv[]) {
          * */
         int freeProcessors=size-1;
         int stepCounter=1;
-
         /*TODO improve waste of memory*/
-        float sCBuffer[(ijA[1] - 2)*(ijA[1] - 2)+1];
-        long ijCBuffer[(ijA[1] - 2)*(ijA[1] - 2)+1];
+        float sumBuffer[(ijA[1] - 2)*(ijA[1] - 2)+1];
         for (i = 1; i <= ijA[1] - 2; i++) {//iterate from 1 to N of A
             //Loop over rows of A,
-            int j;
             for (j = 1; j <= ijB[1] - 2; j++) {//iterate from 1 to N of B
                 //and rows of B.
                 int dest=freeProcessors;
-                if(freeProcessors==1){
+                if(freeProcessors==0){
                     //receive sc, ijc, stepCounter
-                    float tmpSc;
-                    long tmpIjc;
+                    float sum;
                     int tmpIndex;
-                    MPI_Recv(&tmpSc,  1, MPI_FLOAT, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
+                    MPI_Recv(&sum,  1, MPI_FLOAT, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
                     dest=status.MPI_SOURCE;
-                    MPI_Recv(&tmpIjc,  1, MPI_LONG, dest, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
                     MPI_Recv(&tmpIndex,  1, MPI_INT, dest, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
-                    sCBuffer[tmpIndex]=tmpSc;
-                    ijCBuffer[tmpIndex]=tmpIjc;
+                    printf("I'm the master, %d° job received \n",tmpIndex);
+                    sumBuffer[tmpIndex]=sum;
                     freeProcessors++;
                 }
 
                 MPI_Send(&i,  1, MPI_INT, dest, 0, MPI_COMM_WORLD);
                 MPI_Send(&j,  1, MPI_INT, dest, 0, MPI_COMM_WORLD);
                 MPI_Send(&stepCounter,  1, MPI_INT, dest, 0, MPI_COMM_WORLD);
-
+                printf("I'm the master, %d° job sent \n",stepCounter);
                 freeProcessors--;
                 stepCounter++;
             }
         }
 
         /*
-         * Receive last size-1 results and Send SIGTERM
+         * Receive last size-1 results and Send FINALIZE
          *
          * */
         for (i=1; i<size; i++) {
-            float tmpSc;
-            long tmpIjc;
+            float sum;
             int tmpIndex;
-            MPI_Recv(&tmpSc,  1, MPI_FLOAT, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
+            MPI_Recv(&sum,  1, MPI_FLOAT, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
             int dest=status.MPI_SOURCE;
-            MPI_Recv(&tmpIjc,  1, MPI_LONG, dest, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
             MPI_Recv(&tmpIndex,  1, MPI_INT, dest, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
-            sCBuffer[tmpIndex]=tmpSc;
-            ijCBuffer[tmpIndex]=tmpIjc;
-
+            printf("I'm the master, %d° job received \n",tmpIndex);
+            sumBuffer[tmpIndex]=sum;
             //send finalize
             MPI_Send(&tmpIndex,  1, MPI_INT, dest, FINALIZE, MPI_COMM_WORLD);
+            printf("I'm the master, FINALIZE sent to slave #%d \n",dest);
         }
 
         /*
          * Compose result
          * */
-        printf("\nBuffer sc:\n");
-        for(i=1;i<=(ijA[1] - 2)*(ijA[1] - 2);i++){
-            printf("|%f|",sCBuffer[i]);
+        float sC[NMAX_C];
+        long ijC[NMAX_C];
+
+        int k = ijA[1];
+        int bufferElementIndex=1;//stepCounter
+        for (i = 1; i <= ijA[1] - 2; i++) {//iterate from 1 to N of A
+            //Loop over rows of A,
+            for (j = 1; j <= ijB[1] - 2; j++) {//iterate from 1 to N of B
+                if(i==j){//diagonal element
+                    sC[i] = sumBuffer[bufferElementIndex];
+                }
+                else if (fabs(sumBuffer[bufferElementIndex]) > TRESH) {
+                    if (k > NMAX_C) {
+                        printf("sprstm: NMAX_C too small");
+                    }
+                    else{
+                        sC[k] = sumBuffer[bufferElementIndex];
+                        ijC[k++] = j;
+                    }
+                }
+                bufferElementIndex++;
+            }
+            ijC[i + 1] = k;
         }
-        printf("\nBuffer ijc:\n");
-        for(i=1;i<=(ijA[1] - 2)*(ijA[1] - 2);i++){
-            printf("|%d|",ijCBuffer[i]);
+
+        printf("\nResult sc:\n");
+        for(i=1;i<=NMAX_C;i++){
+            printf("|%f|",sC[i]);
+        }
+        printf("\nBResult ijc:\n");
+        for(i=1;i<=NMAX_C;i++){
+            printf("|%d|",ijC[i]);
         }
     }
     else {
@@ -329,40 +351,78 @@ int main(int argc, char *argv[]) {
         MPI_Recv(ijA, NMAX_A, MPI_LONG,  0, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
         MPI_Recv(sBt,  NMAX_B, MPI_FLOAT, 0, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
         MPI_Recv(ijBt, NMAX_B, MPI_LONG,  0, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
-
+        printf("I'm the slave #%d: sA, ijA, sBt, ijBt received \n",rank);
 
         /*
          * Receive (i, j, counter) until receive FINALIZE
          *  Given i, j compute sc, ijc
          *  Send sc, ijc, stepCounter
          * */
-
+        int cntLocalJobs=0;
         while(1) {
             int i, j, stepCounter;
             MPI_Recv(&i, 1, MPI_INT, 0, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
             if (status.MPI_TAG == FINALIZE) {
-                /*printf("Sono slave %d. Ho ricevuto FINALIZE\n", rank);*/
+                printf("I'm the slave %d. FINALIZE Received\n", rank);
                 break;
             }
             MPI_Recv(&j, 1, MPI_INT, 0, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
             MPI_Recv(&stepCounter, 1, MPI_INT, 0, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
+            cntLocalJobs++;
+            printf("I'm the slave #%d: %d° job received \n",rank,cntLocalJobs);
 
-            /*
-             * Compute product
-             * */
 
-            /*
-             * End Compute product
-             * */
+
+
+
+            /*********************************************************************
+             *********************** Compute product******************************
+             ****************************************************************** */
+            unsigned long  ijma, ijmb,  k, ma, mb, mbb;
+            float sum;
+            if (i == j) {
+                sum = sA[i] * sBt[j];
+            }
+            else {
+                sum = 0.0e0;
+            }
+            mb = ijBt[j];
+            for (ma = ijA[i]; ma <= ijA[i + 1] - 1; ma++) {//loop over elements of row i of A
+                ijma = ijA[ma];
+                if (ijma == j) sum += sA[ma] * sBt[j];
+                else {
+                    while (mb < ijBt[j + 1]) {//loop over elements of row i of B
+                        ijmb = ijBt[mb];
+                        if (ijmb == i) {
+                            sum += sA[i] * sBt[mb++];
+                            continue;
+                        } else if (ijmb < ijma) {
+                            mb++;
+                            continue;
+                        } else if (ijmb == ijma) {
+                            sum += sA[ma] * sBt[mb++];
+                            continue;
+                        }
+                        break;
+                    }
+                }
+            }
+            for (mbb = mb; mbb <= ijBt[j + 1] - 1; mbb++) {
+                //Exhaust the remainder of B’s row.
+                if (ijBt[mbb] == i) sum += sA[i] * sBt[mbb];
+            }
+
+            /*********************************************************************
+             **********************End Compute product****************************
+             ****************************************************************** */
 
             /*
              * Send product
              * */
-            float sc=(float) stepCounter;
-            long ijc=(long) stepCounter;
-            MPI_Send(&sc,  1, MPI_FLOAT, 0, 0, MPI_COMM_WORLD);
-            MPI_Send(&ijc,  1, MPI_LONG, 0, 0, MPI_COMM_WORLD);
+
+            MPI_Send(&sum,  1, MPI_FLOAT, 0, 0, MPI_COMM_WORLD);
             MPI_Send(&stepCounter,  1, MPI_INT, 0, 0, MPI_COMM_WORLD);
+            printf("I'm the slave #%d: %d° job computed and submitted \n",rank,cntLocalJobs);
         }
     }
     double end = MPI_Wtime();
