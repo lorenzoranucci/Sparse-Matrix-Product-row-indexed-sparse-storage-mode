@@ -2,9 +2,15 @@
 #include <stdio.h>
 #include <time.h>
 #include <stdlib.h>
+#include <unistd.h>
 #include "iindexx.c"
 #define SIZE 5
-#define NOT_NULL_ELEMENTS 9
+#define NOT_NULL_ELEMENTS 1000000
+#define N 1000
+#define NMAX_A 1000000000
+#define NMAX_B 1000000000
+#define NMAX_C 1000000000
+#define TRESH 0.0
 
 
 
@@ -155,7 +161,6 @@ int sprstm(float sa[], unsigned long ija[], float sb[], unsigned long ijb[],
                 if (ijb[mbb] == i) sum += sa[i] * sb[mbb];
             }
 
-
             if (i == j)
                 sc[i] = sum;
                 //Where to put the answer...
@@ -254,61 +259,57 @@ float ** initRandMat(int rows, int cols){
     /*
      * Print matrice 2
      * */
-    printf("**********Matrice B***********\n");
-    for (int i = 1; i <= rows; i++){
-        for (int j = 1; j <= cols; j++)
-        {
-            printf(" |%f| ",inputMat2[i][j]);
-        }
-        printf("\n");
-    }
+//    printf("**********Matrice B***********\n");
+//    for (int i = 1; i <= rows; i++){
+//        for (int j = 1; j <= cols; j++)
+//        {
+//            printf(" |%f| ",inputMat2[i][j]);
+//        }
+//        printf("\n");
+//    }
 
     return inputMat2;
 }
 
 
 int main(int argc, char *argv[]) {
-    /*
-     * RICORDA che questo bellissimo libro conta a partire da 1 e non da 0, che figata
-     * Comportati di conseguenza
-     * */
 
-    /*Alloca Matrice del libro*/
-    float **inputMat=initBookMat();
+//    float **inputMat=initBookMat();
+//    float **inputMat2=initBookMat();
+    float **inputMat=initRandMat(N,N);
+    float **inputMat2=initRandMat(N,N);
 
-    /*
-     * Converti matrice libro
-     * */
-    float sa[12];
-    long ija[12];
-    sprsin(inputMat, 5, 0.1, 11, sa, ija);
+    float *sa=malloc(sizeof *sa * (NMAX_A) );
+    long *ija=malloc(sizeof *ija * (NMAX_A) );
+    sprsin(inputMat, N, 0.1, NMAX_A-1, sa, ija);
 
-    /*
-     * Alloca matrice 2
-     * */
-    float **inputMat2=initRandMat(6,6);
 
     /*
      * Converti matrice2
      * */
-    float sa2[20];
-    long ija2[20];
-    sprsin(inputMat2, 5, 0.1, 19, sa2, ija2);
+    float *sb=malloc(sizeof *sb * (NMAX_B) );
+    long *ijb=malloc(sizeof *ijb * (NMAX_B) );
+    sprsin(inputMat2, N, 0.1, NMAX_B-1, sb, ijb);
 
 
     /*
      * Trasposta matrice 2
      * */
-    float sb2[20];
-    long ijb2[20];
-    sprstp(sa2,ija2, sb2, ijb2);
+//    float *sbt=malloc(sizeof *sbt * (NMAX_B) );
+//    long *ijbt=malloc(sizeof *ijbt * (NMAX_B) );
+//    sprstp(sb,ijb, sbt, ijbt);
+//    free(sb);
+//    free(ijb);
 
     /*
      * Moltiplica A * B^T
      * */
-    float sc[100];
-    long ijc[100];
-    sprstm( sa,ija, sb2, ijb2, 0.1, 99, sc, ijc);
+    float *sc=malloc(sizeof *sc * (NMAX_C) );
+    long *ijc=malloc(sizeof *ijc * (NMAX_C) );
+    clock_t tic = clock();
+    sprstm( sa,ija, sb, ijb, TRESH, NMAX_C-1, sc, ijc);
+    clock_t toc = clock();
 
+    printf("Elapsed: %f seconds\n", (double)(toc - tic) / CLOCKS_PER_SEC);
 }
 

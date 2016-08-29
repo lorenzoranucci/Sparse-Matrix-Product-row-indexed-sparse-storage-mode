@@ -6,7 +6,8 @@
 #include <stdlib.h>
 #define FINALIZE 300
 #define NOT_NULL_ELEMENTS 9
-#define NMAX_A 12
+#define N 1000
+#define NMAX_A 1000
 #define NMAX_B 12
 #define NMAX_C 20
 #define TRESH 0.0
@@ -47,16 +48,16 @@ float ** initBookMat(){
     /*
      * Print matrice libro
      * */
-    printf("**********Matrice A***********\n");
-    int i;
-    for (i = 1; i <= 5; i++){
-        int j;
-        for ( j = 1; j <= 5; j++)
-        {
-            printf(" |%f| ",inputMat[i][j]);
-        }
-        printf("\n");
-    }
+//    printf("**********Matrice A***********\n");
+//    int i;
+//    for (i = 1; i <= 5; i++){
+//        int j;
+//        for ( j = 1; j <= 5; j++)
+//        {
+//            printf(" |%f| ",inputMat[i][j]);
+//        }
+//        printf("\n");
+//    }
 
     return inputMat;
 }
@@ -99,15 +100,15 @@ float ** initRandMat(int rows, int cols){
     /*
      * Print matrice 2
      * */
-    printf("**********Matrice B***********\n");
-    for (i = 1; i <= rows; i++){
-        int j;
-        for (j = 1; j <= cols; j++)
-        {
-            printf(" |%f| ",inputMat2[i][j]);
-        }
-        printf("\n");
-    }
+//    printf("**********Matrice B***********\n");
+//    for (i = 1; i <= rows; i++){
+//        int j;
+//        for (j = 1; j <= cols; j++)
+//        {
+//            printf(" |%f| ",inputMat2[i][j]);
+//        }
+//        printf("\n");
+//    }
 
     return inputMat2;
 }
@@ -210,43 +211,41 @@ int main(int argc, char *argv[]) {
     MPI_Comm_size (MPI_COMM_WORLD, &size);
 
     if (rank == 0) {
-        float **matA=initBookMat();
-        //float **matB=initRandMat(6,6);
-        float **matB=initBookMat();
+//        float **matA=initBookMat();
+//        float **matB=initBookMat();
+
+        float **matA=initRandMat(N,N);
+        float **matB=initRandMat(N,N);
         /*Convert matrices in row-indexed sparse storage mode*/
-        float sA[NMAX_A];
-        long ijA[NMAX_A];
-        sprsin(matA, 5, 0.1, NMAX_A-1, sA, ijA);
-        printf("Sprsin #1 executed\n");
-        float sB[NMAX_B];
-        long ijB[NMAX_B];
-        sprsin(matB, 5, 0.1, NMAX_B-1, sB, ijB);
-        printf("Sprsin #2 executed\n");
+        float *sA=malloc(sizeof *sA * (NMAX_A) );
+        long *ijA=malloc(sizeof *ijA * (NMAX_A) );
+        sprsin(matA, N, 0.1, NMAX_A-1, sA, ijA);
+        //printf("Sprsin #1 executed\n");
+        float *sB=malloc(sizeof *sB * (NMAX_B) );
+        long *ijB=malloc(sizeof *ijB * (NMAX_B) );
+        sprsin(matB, N, 0.1, NMAX_B-1, sB, ijB);
+        //printf("Sprsin #2 executed\n");
         /*Transpose matrix B*/
-        float sBt[NMAX_B];
-        long ijBt[NMAX_B];
-        sprstp(sB,ijB, sBt, ijBt);
-        printf("Sprstp executed\n");
+//        float sBt[NMAX_B];
+//        long ijBt[NMAX_B];
+//        sprstp(sB,ijB, sBt, ijBt);
+        //printf("Sprstp executed\n");
 
 
 
         /*Distribute the workload among the slaves*/
-
+        clock_t tic = clock();
         /*Send sA, ijA, sB, ijB to all the salves*/
         int i;
         int j;
         for (i=1; i<size; i++) {
             MPI_Send(&sA, NMAX_A, MPI_FLOAT, i,0, MPI_COMM_WORLD);
-            cntSend++;
             MPI_Send(&ijA,NMAX_A, MPI_LONG, i,0, MPI_COMM_WORLD);
-            cntSend++;
 
-            MPI_Send(&sBt,  NMAX_B, MPI_FLOAT, i,0, MPI_COMM_WORLD);
-            cntSend++;
-            MPI_Send(&ijBt, NMAX_B, MPI_LONG, i,0, MPI_COMM_WORLD);
-            cntSend++;
+            MPI_Send(&sB,  NMAX_B, MPI_FLOAT, i,0, MPI_COMM_WORLD);
+            MPI_Send(&ijB, NMAX_B, MPI_LONG, i,0, MPI_COMM_WORLD);
         }
-        printf("I'm the master, sA, ijA, sBt, ijBt sent \n");
+        //printf("I'm the master, sA, ijA, sBt, ijBt sent \n");
 
         /*
          * Iterate over rows of A
@@ -272,7 +271,7 @@ int main(int argc, char *argv[]) {
                     MPI_Recv(&sum,  1, MPI_FLOAT, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
                     dest=status.MPI_SOURCE;
                     MPI_Recv(&tmpIndex,  1, MPI_INT, dest, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
-                    printf("I'm the master, %d° job received \n",tmpIndex);
+                    //printf("I'm the master, %d° job received \n",tmpIndex);
                     sumBuffer[tmpIndex]=sum;
                     freeProcessors++;
                 }
@@ -280,7 +279,7 @@ int main(int argc, char *argv[]) {
                 MPI_Send(&i,  1, MPI_INT, dest, 0, MPI_COMM_WORLD);
                 MPI_Send(&j,  1, MPI_INT, dest, 0, MPI_COMM_WORLD);
                 MPI_Send(&stepCounter,  1, MPI_INT, dest, 0, MPI_COMM_WORLD);
-                printf("I'm the master, %d° job sent \n",stepCounter);
+                //printf("I'm the master, %d° job sent \n",stepCounter);
                 freeProcessors--;
                 stepCounter++;
             }
@@ -296,11 +295,11 @@ int main(int argc, char *argv[]) {
             MPI_Recv(&sum,  1, MPI_FLOAT, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
             int dest=status.MPI_SOURCE;
             MPI_Recv(&tmpIndex,  1, MPI_INT, dest, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
-            printf("I'm the master, %d° job received \n",tmpIndex);
+            //printf("I'm the master, %d° job received \n",tmpIndex);
             sumBuffer[tmpIndex]=sum;
             //send finalize
             MPI_Send(&tmpIndex,  1, MPI_INT, dest, FINALIZE, MPI_COMM_WORLD);
-            printf("I'm the master, FINALIZE sent to slave #%d \n",dest);
+            //printf("I'm the master, FINALIZE sent to slave #%d \n",dest);
         }
 
         /*
@@ -330,7 +329,8 @@ int main(int argc, char *argv[]) {
             }
             ijC[i + 1] = k;
         }
-
+        clock_t toc = clock();
+        printf("\nParallel SPRSTM, Elapsed time: %f seconds\n", (double)(toc - tic) / CLOCKS_PER_SEC);
         printf("\nResult sc:\n");
         for(i=1;i<=NMAX_C;i++){
             printf("|%f|",sC[i]);
@@ -341,7 +341,7 @@ int main(int argc, char *argv[]) {
         }
     }
     else {
-        printf("I'm the slave #%d \n",rank);
+        //printf("I'm the slave #%d \n",rank);
         /*Receive sA, ijA, sB, ijB*/
         float sA[12];
         long ijA[12];
@@ -351,7 +351,7 @@ int main(int argc, char *argv[]) {
         MPI_Recv(ijA, NMAX_A, MPI_LONG,  0, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
         MPI_Recv(sBt,  NMAX_B, MPI_FLOAT, 0, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
         MPI_Recv(ijBt, NMAX_B, MPI_LONG,  0, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
-        printf("I'm the slave #%d: sA, ijA, sBt, ijBt received \n",rank);
+        //printf("I'm the slave #%d: sA, ijA, sBt, ijBt received \n",rank);
 
         /*
          * Receive (i, j, counter) until receive FINALIZE
@@ -363,13 +363,13 @@ int main(int argc, char *argv[]) {
             int i, j, stepCounter;
             MPI_Recv(&i, 1, MPI_INT, 0, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
             if (status.MPI_TAG == FINALIZE) {
-                printf("I'm the slave %d. FINALIZE Received\n", rank);
+                //printf("I'm the slave %d. FINALIZE Received\n", rank);
                 break;
             }
             MPI_Recv(&j, 1, MPI_INT, 0, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
             MPI_Recv(&stepCounter, 1, MPI_INT, 0, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
             cntLocalJobs++;
-            printf("I'm the slave #%d: %d° job received \n",rank,cntLocalJobs);
+            //printf("I'm the slave #%d: %d° job received \n",rank,cntLocalJobs);
 
 
 
@@ -422,13 +422,13 @@ int main(int argc, char *argv[]) {
 
             MPI_Send(&sum,  1, MPI_FLOAT, 0, 0, MPI_COMM_WORLD);
             MPI_Send(&stepCounter,  1, MPI_INT, 0, 0, MPI_COMM_WORLD);
-            printf("I'm the slave #%d: %d° job computed and submitted \n",rank,cntLocalJobs);
+            //printf("I'm the slave #%d: %d° job computed and submitted \n",rank,cntLocalJobs);
         }
     }
     double end = MPI_Wtime();
     MPI_FINALIZE();
     double elapsed = end - start;
-    printf("Tempo trascorso: %f secondi\n", elapsed );
-    printf("Send: %d \n", cntSend );
-    printf("Rcv: %d \n", cntRcv );
+    printf("Total elapsed time: %f seconds\n", elapsed );
+    //printf("Send: %d \n", cntSend );
+    //printf("Rcv: %d \n", cntRcv );
 }
