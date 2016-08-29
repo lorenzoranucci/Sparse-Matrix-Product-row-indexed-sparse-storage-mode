@@ -5,11 +5,11 @@
 #include <time.h>
 #include <stdlib.h>
 #define FINALIZE 300
-#define NOT_NULL_ELEMENTS 9
-#define N 1000
-#define NMAX_A 1000
-#define NMAX_B 12
-#define NMAX_C 20
+#define NOT_NULL_ELEMENTS 10
+#define N 10
+#define NMAX_A 30
+#define NMAX_B 30
+#define NMAX_C 50
 #define TRESH 0.0
 
 float ** initBookMat(){
@@ -197,6 +197,67 @@ void sprstp(float sa[], unsigned long ija[], float sb[], unsigned long ijb[]) {
     }
 }
 
+int sprstm(float sa[], unsigned long ija[], float sb[], unsigned long ijb[],
+           float thresh, unsigned long nmax, float sc[], unsigned long ijc[]) {
+    unsigned long i, ijma, ijmb, j, k, ma, mb, mbb;
+    float sum;
+    if (ija[1] != ijb[1]) nrerror("sprstm: sizes do not match");//Check if matrices have the same size
+    ijc[1] = k = ija[1];//c size is the same as input matrices size
+    for (i = 1; i <= ija[1] - 2; i++) {//iterate from 1 to N of A
+        //Loop over rows of A,
+        for (j = 1; j <= ijb[1] - 2; j++) {//iterate from 1 to N of B
+            //and rows of B.
+
+            /*
+             * La moltiplicazione degli elementi sulla diagonale tra di loro avviene solamente se i==j
+             * */
+            if (i == j) {
+                sum = sa[i] * sb[j];
+            }
+            else {
+                sum = 0.0e0;
+            }
+
+
+
+            mb = ijb[j];
+            for (ma = ija[i]; ma <= ija[i + 1] - 1; ma++) {//loop over elements of row i of A
+                ijma = ija[ma];
+                if (ijma == j) sum += sa[ma] * sb[j];
+                else {
+                    while (mb < ijb[j + 1]) {//loop over elements of row i of B
+                        ijmb = ijb[mb];
+                        if (ijmb == i) {
+                            sum += sa[i] * sb[mb++];
+                            continue;
+                        } else if (ijmb < ijma) {
+                            mb++;
+                            continue;
+                        } else if (ijmb == ijma) {
+                            sum += sa[ma] * sb[mb++];
+                            continue;
+                        }
+                        break;
+                    }
+                }
+            }
+            for (mbb = mb; mbb <= ijb[j + 1] - 1; mbb++) {
+                //Exhaust the remainder of B’s row.
+                if (ijb[mbb] == i) sum += sa[i] * sb[mbb];
+            }
+
+            if (i == j)
+                sc[i] = sum;
+                //Where to put the answer...
+            else if (fabs(sum) > thresh) {
+                if (k > nmax) nrerror("sprstm: nmax too small");
+                sc[k] = sum;
+                ijc[k++] = j;
+            }
+        }
+        ijc[i + 1] = k;
+    }
+}
 
 int main(int argc, char *argv[]) {
 
@@ -213,16 +274,18 @@ int main(int argc, char *argv[]) {
     if (rank == 0) {
 //        float **matA=initBookMat();
 //        float **matB=initBookMat();
+        int i;
+        int j;
 
         float **matA=initRandMat(N,N);
         float **matB=initRandMat(N,N);
         /*Convert matrices in row-indexed sparse storage mode*/
-        float *sA=malloc(sizeof *sA * (NMAX_A) );
-        long *ijA=malloc(sizeof *ijA * (NMAX_A) );
+        float sA[NMAX_A];
+        long ijA[NMAX_A];
         sprsin(matA, N, 0.1, NMAX_A-1, sA, ijA);
         //printf("Sprsin #1 executed\n");
-        float *sB=malloc(sizeof *sB * (NMAX_B) );
-        long *ijB=malloc(sizeof *ijB * (NMAX_B) );
+        float sB[NMAX_B];
+        long ijB[NMAX_B];
         sprsin(matB, N, 0.1, NMAX_B-1, sB, ijB);
         //printf("Sprsin #2 executed\n");
         /*Transpose matrix B*/
@@ -231,13 +294,28 @@ int main(int argc, char *argv[]) {
 //        sprstp(sB,ijB, sBt, ijBt);
         //printf("Sprstp executed\n");
 
+        float *sCSer=malloc(sizeof *sCSer * (NMAX_C) );
+        long *ijCSer=malloc(sizeof *ijCSer * (NMAX_C) );
+        clock_t ticSer = clock();
+        sprstm( sA,ijA, sB, ijB, TRESH, NMAX_C-1, sCSer, ijCSer);
+        clock_t tocSer = clock();
+
+        printf("\nSerial SPRSTM, Elapsed time: %f seconds\n", (double)(tocSer - ticSer) / CLOCKS_PER_SEC);
+        printf("\nResult sc:\n");
+        for(i=1;i<=NMAX_C;i++){
+            printf("|%f|",sCSer[i]);
+        }
+        printf("\nResult ijc:\n");
+        for(i=1;i<=NMAX_C;i++){
+            printf("|%d|",ijCSer[i]);
+        }
+
 
 
         /*Distribute the workload among the slaves*/
         clock_t tic = clock();
         /*Send sA, ijA, sB, ijB to all the salves*/
-        int i;
-        int j;
+
         for (i=1; i<size; i++) {
             MPI_Send(&sA, NMAX_A, MPI_FLOAT, i,0, MPI_COMM_WORLD);
             MPI_Send(&ijA,NMAX_A, MPI_LONG, i,0, MPI_COMM_WORLD);
@@ -335,7 +413,7 @@ int main(int argc, char *argv[]) {
         for(i=1;i<=NMAX_C;i++){
             printf("|%f|",sC[i]);
         }
-        printf("\nBResult ijc:\n");
+        printf("\nResult ijc:\n");
         for(i=1;i<=NMAX_C;i++){
             printf("|%d|",ijC[i]);
         }
@@ -426,9 +504,7 @@ int main(int argc, char *argv[]) {
         }
     }
     double end = MPI_Wtime();
-    MPI_FINALIZE();
     double elapsed = end - start;
-    printf("Total elapsed time: %f seconds\n", elapsed );
-    //printf("Send: %d \n", cntSend );
-    //printf("Rcv: %d \n", cntRcv );
+    printf("\nTotal elapsed time of node with rank %d: %f seconds\n", rank,elapsed );
+    MPI_FINALIZE();
 }
