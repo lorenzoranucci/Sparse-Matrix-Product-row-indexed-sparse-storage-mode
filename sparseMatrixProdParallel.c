@@ -12,6 +12,14 @@
 #define NMAX_C 50
 #define TRESH 0.0
 
+struct node {
+    float value;
+    int i;
+    int j;
+    int position;
+    struct node *next;
+};
+
 float ** initBookMat(){
     float ** inputMat=malloc(sizeof *inputMat * (5 +1) );
     inputMat[1]=malloc(sizeof *inputMat[1] * (5+1));
@@ -203,6 +211,7 @@ int sprstm(float sa[], unsigned long ija[], float sb[], unsigned long ijb[],
     float sum;
     if (ija[1] != ijb[1]) nrerror("sprstm: sizes do not match");//Check if matrices have the same size
     ijc[1] = k = ija[1];//c size is the same as input matrices size
+    printf("\nSPRSTM Serial sums: \n");
     for (i = 1; i <= ija[1] - 2; i++) {//iterate from 1 to N of A
         //Loop over rows of A,
         for (j = 1; j <= ijb[1] - 2; j++) {//iterate from 1 to N of B
@@ -246,6 +255,8 @@ int sprstm(float sa[], unsigned long ija[], float sb[], unsigned long ijb[],
                 if (ijb[mbb] == i) sum += sa[i] * sb[mbb];
             }
 
+            printf("|%f|",sum);
+
             if (i == j)
                 sc[i] = sum;
                 //Where to put the answer...
@@ -258,6 +269,52 @@ int sprstm(float sa[], unsigned long ija[], float sb[], unsigned long ijb[],
         ijc[i + 1] = k;
     }
 }
+
+void insertSumBufferList(float value, int i, int j, struct node **head,  int Nb){
+    int position=((i-1)*Nb)+j;
+
+    struct node *newNodePtr=(struct node *) malloc(sizeof(struct node));
+    newNodePtr->i=i;
+    newNodePtr->j=j;
+    newNodePtr->position=position;
+    newNodePtr->value=value;
+
+    if(*head==NULL){//insert first element
+        *head=newNodePtr;
+    }
+    else{
+        struct node *currentPtr=*head;
+        struct node *prevPtr=NULL;
+        while(currentPtr!=NULL){
+            if(currentPtr->position > newNodePtr->position &&
+               (prevPtr==NULL || prevPtr->position<newNodePtr->position)){
+
+                if(prevPtr==NULL){//insert first position
+                    *head=newNodePtr;
+                }
+                else{//insert between prev and current
+                    prevPtr->next=newNodePtr;
+                }
+                newNodePtr->next=currentPtr;
+                break;
+
+            }
+            else if(currentPtr->next==NULL){//insert last position
+
+                currentPtr->next=newNodePtr;
+                break;
+
+            }
+            else{
+                prevPtr=currentPtr;
+                currentPtr=currentPtr->next;
+            }
+
+        }
+    }
+
+}
+
 
 int main(int argc, char *argv[]) {
 
@@ -335,8 +392,7 @@ int main(int argc, char *argv[]) {
          * */
         int freeProcessors=size-1;
         int stepCounter=1;
-        /*TODO improve waste of memory*/
-        float sumBuffer[(ijA[1] - 2)*(ijA[1] - 2)+1];
+        struct node * bufferListHeadPtr=NULL;
         for (i = 1; i <= ijA[1] - 2; i++) {//iterate from 1 to N of A
             //Loop over rows of A,
             for (j = 1; j <= ijB[1] - 2; j++) {//iterate from 1 to N of B
@@ -345,18 +401,18 @@ int main(int argc, char *argv[]) {
                 if(freeProcessors==0){
                     //receive sc, ijc, stepCounter
                     float sum;
-                    int tmpIndex;
+                    int tmpI, tmpJ;
                     MPI_Recv(&sum,  1, MPI_FLOAT, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
                     dest=status.MPI_SOURCE;
-                    MPI_Recv(&tmpIndex,  1, MPI_INT, dest, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
+                    MPI_Recv(&tmpI,  1, MPI_INT, dest, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
+                    MPI_Recv(&tmpJ,  1, MPI_INT, dest, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
                     //printf("I'm the master, %d° job received \n",tmpIndex);
-                    sumBuffer[tmpIndex]=sum;
+                    insertSumBufferList(sum,tmpI,tmpJ,&bufferListHeadPtr,ijB[1] - 2);
                     freeProcessors++;
                 }
 
                 MPI_Send(&i,  1, MPI_INT, dest, 0, MPI_COMM_WORLD);
                 MPI_Send(&j,  1, MPI_INT, dest, 0, MPI_COMM_WORLD);
-                MPI_Send(&stepCounter,  1, MPI_INT, dest, 0, MPI_COMM_WORLD);
                 //printf("I'm the master, %d° job sent \n",stepCounter);
                 freeProcessors--;
                 stepCounter++;
@@ -369,14 +425,15 @@ int main(int argc, char *argv[]) {
          * */
         for (i=1; i<size; i++) {
             float sum;
-            int tmpIndex;
+            int tmpI, tmpJ;
             MPI_Recv(&sum,  1, MPI_FLOAT, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
             int dest=status.MPI_SOURCE;
-            MPI_Recv(&tmpIndex,  1, MPI_INT, dest, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
+            MPI_Recv(&tmpI,  1, MPI_INT, dest, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
+            MPI_Recv(&tmpJ,  1, MPI_INT, dest, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
             //printf("I'm the master, %d° job received \n",tmpIndex);
-            sumBuffer[tmpIndex]=sum;
+            insertSumBufferList(sum,tmpI,tmpJ,&bufferListHeadPtr,ijB[1] - 2);
             //send finalize
-            MPI_Send(&tmpIndex,  1, MPI_INT, dest, FINALIZE, MPI_COMM_WORLD);
+            MPI_Send(&tmpI,  1, MPI_INT, dest, FINALIZE, MPI_COMM_WORLD);
             //printf("I'm the master, FINALIZE sent to slave #%d \n",dest);
         }
 
@@ -387,26 +444,31 @@ int main(int argc, char *argv[]) {
         long ijC[NMAX_C];
 
         int k = ijA[1];
-        int bufferElementIndex=1;//stepCounter
-        for (i = 1; i <= ijA[1] - 2; i++) {//iterate from 1 to N of A
-            //Loop over rows of A,
-            for (j = 1; j <= ijB[1] - 2; j++) {//iterate from 1 to N of B
-                if(i==j){//diagonal element
-                    sC[i] = sumBuffer[bufferElementIndex];
-                }
-                else if (fabs(sumBuffer[bufferElementIndex]) > TRESH) {
-                    if (k > NMAX_C) {
-                        printf("sprstm: NMAX_C too small");
-                    }
-                    else{
-                        sC[k] = sumBuffer[bufferElementIndex];
-                        ijC[k++] = j;
-                    }
-                }
-                bufferElementIndex++;
+        struct node *currentNodePtr=bufferListHeadPtr;
+        int currentI=1;
+        printf("\nSPRSTM Parallel sums: \n");
+        while(currentNodePtr != NULL){
+            printf("|%f|",currentNodePtr->value);
+            if(currentNodePtr->i > currentI){
+                ijC[currentI + 1] = k;
+                currentI=currentNodePtr->i;
             }
-            ijC[i + 1] = k;
+
+            if(currentNodePtr->i == currentNodePtr->j){//diagonal element
+                sC[i] = currentNodePtr->value;
+            }
+            else if (fabs(currentNodePtr->value) > TRESH) {
+                if (k > NMAX_C) {
+                    printf("sprstm: NMAX_C too small");
+                }
+                else{
+                    sC[k] = currentNodePtr->value;
+                    ijC[k++] = currentNodePtr->j;
+                }
+            }
+            currentNodePtr=currentNodePtr->next;
         }
+
         clock_t toc = clock();
         printf("\nParallel SPRSTM, Elapsed time: %f seconds\n", (double)(toc - tic) / CLOCKS_PER_SEC);
         printf("\nResult sc:\n");
@@ -445,7 +507,6 @@ int main(int argc, char *argv[]) {
                 break;
             }
             MPI_Recv(&j, 1, MPI_INT, 0, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
-            MPI_Recv(&stepCounter, 1, MPI_INT, 0, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
             cntLocalJobs++;
             //printf("I'm the slave #%d: %d° job received \n",rank,cntLocalJobs);
 
@@ -499,7 +560,8 @@ int main(int argc, char *argv[]) {
              * */
 
             MPI_Send(&sum,  1, MPI_FLOAT, 0, 0, MPI_COMM_WORLD);
-            MPI_Send(&stepCounter,  1, MPI_INT, 0, 0, MPI_COMM_WORLD);
+            MPI_Send(&i,  1, MPI_INT, 0, 0, MPI_COMM_WORLD);
+            MPI_Send(&j,  1, MPI_INT, 0, 0, MPI_COMM_WORLD);
             //printf("I'm the slave #%d: %d° job computed and submitted \n",rank,cntLocalJobs);
         }
     }
