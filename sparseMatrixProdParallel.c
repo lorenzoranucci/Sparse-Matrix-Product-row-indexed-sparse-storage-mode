@@ -6,17 +6,17 @@
 #include <stdlib.h>
 #define FINALIZE 300
 #define NOT_NULL_ELEMENTS 10
-#define N 10
-#define NMAX_A 30
-#define NMAX_B 30
+#define N 5
+#define NMAX_A 12
+#define NMAX_B 20
 #define NMAX_C 50
 #define TRESH 0.0
 
 struct node {
     float value;
-    int i;
-    int j;
-    int position;
+    unsigned long i;
+    unsigned long j;
+    unsigned long position;
     struct node *next;
 };
 
@@ -212,11 +212,12 @@ int sprstm(float sa[], unsigned long ija[], float sb[], unsigned long ijb[],
     if (ija[1] != ijb[1]) nrerror("sprstm: sizes do not match");//Check if matrices have the same size
     ijc[1] = k = ija[1];//c size is the same as input matrices size
     printf("\nSPRSTM Serial sums: \n");
+    int cntStep=0;
     for (i = 1; i <= ija[1] - 2; i++) {//iterate from 1 to N of A
         //Loop over rows of A,
         for (j = 1; j <= ijb[1] - 2; j++) {//iterate from 1 to N of B
             //and rows of B.
-
+            cntStep++;
             /*
              * La moltiplicazione degli elementi sulla diagonale tra di loro avviene solamente se i==j
              * */
@@ -255,7 +256,7 @@ int sprstm(float sa[], unsigned long ija[], float sb[], unsigned long ijb[],
                 if (ijb[mbb] == i) sum += sa[i] * sb[mbb];
             }
 
-            printf("|%f|",sum);
+            printf("|%d-%f|",cntStep,sum);
 
             if (i == j)
                 sc[i] = sum;
@@ -268,6 +269,7 @@ int sprstm(float sa[], unsigned long ija[], float sb[], unsigned long ijb[],
         }
         ijc[i + 1] = k;
     }
+    return k;
 }
 
 void insertSumBufferList(float value, int i, int j, struct node **head,  int Nb){
@@ -278,18 +280,17 @@ void insertSumBufferList(float value, int i, int j, struct node **head,  int Nb)
     newNodePtr->j=j;
     newNodePtr->position=position;
     newNodePtr->value=value;
-
-    if(*head==NULL){//insert first element
+    newNodePtr->next=0;
+    if(*head==0){//insert first element
         *head=newNodePtr;
     }
     else{
         struct node *currentPtr=*head;
-        struct node *prevPtr=NULL;
-        while(currentPtr!=NULL){
+        struct node *prevPtr=0;
+        while(currentPtr!=0){
             if(currentPtr->position > newNodePtr->position &&
-               (prevPtr==NULL || prevPtr->position<newNodePtr->position)){
-
-                if(prevPtr==NULL){//insert first position
+               (prevPtr==0 || prevPtr->position < newNodePtr->position)){
+                if(prevPtr==0){//insert first position
                     *head=newNodePtr;
                 }
                 else{//insert between prev and current
@@ -299,8 +300,7 @@ void insertSumBufferList(float value, int i, int j, struct node **head,  int Nb)
                 break;
 
             }
-            else if(currentPtr->next==NULL){//insert last position
-
+            else if(currentPtr->next==0){//insert last position
                 currentPtr->next=newNodePtr;
                 break;
 
@@ -328,94 +328,74 @@ int main(int argc, char *argv[]) {
     MPI_Comm_rank (MPI_COMM_WORLD, &rank);
     MPI_Comm_size (MPI_COMM_WORLD, &size);
 
+    float **matA=initBookMat();
+    float **matB=initBookMat();
+//        float **matA=initRandMat(N,N);
+//        float **matB=initRandMat(N,N);
+    /*Convert matrices in row-indexed sparse storage mode*/
+    float sA[NMAX_A];
+    unsigned long ijA[NMAX_A];
+    sprsin(matA, N, 0.1, NMAX_A-1, sA, ijA);
+    float sB[NMAX_B];
+    unsigned long ijB[NMAX_B];
+    sprsin(matB, N, 0.1, NMAX_B-1, sB, ijB);
+
     if (rank == 0) {
-//        float **matA=initBookMat();
-//        float **matB=initBookMat();
-        int i;
-        int j;
-
-        float **matA=initRandMat(N,N);
-        float **matB=initRandMat(N,N);
-        /*Convert matrices in row-indexed sparse storage mode*/
-        float sA[NMAX_A];
-        long ijA[NMAX_A];
-        sprsin(matA, N, 0.1, NMAX_A-1, sA, ijA);
-        //printf("Sprsin #1 executed\n");
-        float sB[NMAX_B];
-        long ijB[NMAX_B];
-        sprsin(matB, N, 0.1, NMAX_B-1, sB, ijB);
-        //printf("Sprsin #2 executed\n");
-        /*Transpose matrix B*/
-//        float sBt[NMAX_B];
-//        long ijBt[NMAX_B];
-//        sprstp(sB,ijB, sBt, ijBt);
-        //printf("Sprstp executed\n");
-
+        unsigned long i , j;
+        /*********************************************************************
+        ********************** Execute serial SPRSTM**************************
+        ****************************************************************** */
         float *sCSer=malloc(sizeof *sCSer * (NMAX_C) );
-        long *ijCSer=malloc(sizeof *ijCSer * (NMAX_C) );
+        unsigned long *ijCSer=malloc(sizeof *ijCSer * (NMAX_C) );
+
         clock_t ticSer = clock();
-        sprstm( sA,ijA, sB, ijB, TRESH, NMAX_C-1, sCSer, ijCSer);
+        int kSer=sprstm( sA,ijA, sB, ijB, TRESH, NMAX_C-1, sCSer, ijCSer);
         clock_t tocSer = clock();
 
         printf("\nSerial SPRSTM, Elapsed time: %f seconds\n", (double)(tocSer - ticSer) / CLOCKS_PER_SEC);
         printf("\nResult sc:\n");
-        for(i=1;i<=NMAX_C;i++){
+        for(i=1;i<=kSer-1;i++){
+            if(i == ijCSer[1]-1){
+                printf("|nill|");
+                continue;
+            }
             printf("|%f|",sCSer[i]);
         }
         printf("\nResult ijc:\n");
-        for(i=1;i<=NMAX_C;i++){
+        for(i=1;i<=kSer-1;i++){
             printf("|%d|",ijCSer[i]);
         }
+        /*********************************************************************
+        *********************END Execute serial SPRSTM************************
+        ****************************************************************** */
 
-
-
-        /*Distribute the workload among the slaves*/
+        /*********************************************************************
+        ********************** Execute parallel SPRSTM**************************
+        ****************************************************************** */
         clock_t tic = clock();
-        /*Send sA, ijA, sB, ijB to all the salves*/
 
-        for (i=1; i<size; i++) {
-            MPI_Send(&sA, NMAX_A, MPI_FLOAT, i,0, MPI_COMM_WORLD);
-            MPI_Send(&ijA,NMAX_A, MPI_LONG, i,0, MPI_COMM_WORLD);
-
-            MPI_Send(&sB,  NMAX_B, MPI_FLOAT, i,0, MPI_COMM_WORLD);
-            MPI_Send(&ijB, NMAX_B, MPI_LONG, i,0, MPI_COMM_WORLD);
-        }
-        //printf("I'm the master, sA, ijA, sBt, ijBt sent \n");
-
-        /*
-         * Iterate over rows of A
-         *  Iterate over rows of B
-         *      -receive when freeProcessors == 0
-         *      -send(i, j, stepCounter) to next slave
-         *      -increment stepCounter and decrement freeProcessor
-         *
-         * */
         int freeProcessors=size-1;
-        int stepCounter=1;
-        struct node * bufferListHeadPtr=NULL;
+        struct node * bufferListHeadPtr=0;
         for (i = 1; i <= ijA[1] - 2; i++) {//iterate from 1 to N of A
             //Loop over rows of A,
             for (j = 1; j <= ijB[1] - 2; j++) {//iterate from 1 to N of B
                 //and rows of B.
                 int dest=freeProcessors;
                 if(freeProcessors==0){
-                    //receive sc, ijc, stepCounter
                     float sum;
-                    int tmpI, tmpJ;
+                    unsigned long tmpI, tmpJ;
                     MPI_Recv(&sum,  1, MPI_FLOAT, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
                     dest=status.MPI_SOURCE;
-                    MPI_Recv(&tmpI,  1, MPI_INT, dest, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
-                    MPI_Recv(&tmpJ,  1, MPI_INT, dest, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
-                    //printf("I'm the master, %d° job received \n",tmpIndex);
+                    MPI_Recv(&tmpI,  1, MPI_UNSIGNED_LONG, dest, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
+                    MPI_Recv(&tmpJ,  1, MPI_UNSIGNED_LONG, dest, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
+                    //printf("I'm the master, (%f,%d, %d) job received \n",sum,tmpI, tmpJ);
                     insertSumBufferList(sum,tmpI,tmpJ,&bufferListHeadPtr,ijB[1] - 2);
                     freeProcessors++;
                 }
 
-                MPI_Send(&i,  1, MPI_INT, dest, 0, MPI_COMM_WORLD);
-                MPI_Send(&j,  1, MPI_INT, dest, 0, MPI_COMM_WORLD);
-                //printf("I'm the master, %d° job sent \n",stepCounter);
+                MPI_Send(&i,  1, MPI_UNSIGNED_LONG, dest, 0, MPI_COMM_WORLD);
+                MPI_Send(&j,  1, MPI_UNSIGNED_LONG, dest, 0, MPI_COMM_WORLD);
                 freeProcessors--;
-                stepCounter++;
             }
         }
 
@@ -425,15 +405,15 @@ int main(int argc, char *argv[]) {
          * */
         for (i=1; i<size; i++) {
             float sum;
-            int tmpI, tmpJ;
+            unsigned long tmpI, tmpJ;
             MPI_Recv(&sum,  1, MPI_FLOAT, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
             int dest=status.MPI_SOURCE;
-            MPI_Recv(&tmpI,  1, MPI_INT, dest, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
-            MPI_Recv(&tmpJ,  1, MPI_INT, dest, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
-            //printf("I'm the master, %d° job received \n",tmpIndex);
+            MPI_Recv(&tmpI,  1, MPI_UNSIGNED_LONG, dest, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
+            MPI_Recv(&tmpJ,  1, MPI_UNSIGNED_LONG, dest, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
+            //printf("I'm the master, (%d, %d) job received \n",tmpI, tmpJ);
             insertSumBufferList(sum,tmpI,tmpJ,&bufferListHeadPtr,ijB[1] - 2);
             //send finalize
-            MPI_Send(&tmpI,  1, MPI_INT, dest, FINALIZE, MPI_COMM_WORLD);
+            MPI_Send(&tmpI,  1, MPI_UNSIGNED_LONG, dest, FINALIZE, MPI_COMM_WORLD);
             //printf("I'm the master, FINALIZE sent to slave #%d \n",dest);
         }
 
@@ -441,21 +421,19 @@ int main(int argc, char *argv[]) {
          * Compose result
          * */
         float sC[NMAX_C];
-        long ijC[NMAX_C];
+        unsigned long ijC[NMAX_C];
 
-        int k = ijA[1];
+        unsigned long k = ijA[1];
+        ijC[1]=k;
         struct node *currentNodePtr=bufferListHeadPtr;
         int currentI=1;
         printf("\nSPRSTM Parallel sums: \n");
-        while(currentNodePtr != NULL){
-            printf("|%f|",currentNodePtr->value);
-            if(currentNodePtr->i > currentI){
-                ijC[currentI + 1] = k;
-                currentI=currentNodePtr->i;
-            }
+        while(currentNodePtr != 0){
+            printf("|%d-%f|",currentNodePtr->position,currentNodePtr->value);
+
 
             if(currentNodePtr->i == currentNodePtr->j){//diagonal element
-                sC[i] = currentNodePtr->value;
+                sC[currentNodePtr->i] = currentNodePtr->value;
             }
             else if (fabs(currentNodePtr->value) > TRESH) {
                 if (k > NMAX_C) {
@@ -467,106 +445,94 @@ int main(int argc, char *argv[]) {
                 }
             }
             currentNodePtr=currentNodePtr->next;
-        }
 
+            if(currentNodePtr==0 || currentNodePtr->i > currentI){//every "i" for loop step
+                ijC[currentI + 1] = k;
+                currentI++;
+            }
+        }
         clock_t toc = clock();
         printf("\nParallel SPRSTM, Elapsed time: %f seconds\n", (double)(toc - tic) / CLOCKS_PER_SEC);
         printf("\nResult sc:\n");
-        for(i=1;i<=NMAX_C;i++){
+        for(i=1;i<=k-1;i++){
+            if(i == ijC[1]-1){
+                printf("|nill|");
+                continue;
+            }
             printf("|%f|",sC[i]);
         }
         printf("\nResult ijc:\n");
-        for(i=1;i<=NMAX_C;i++){
+        for(i=1;i<=k-1;i++){
             printf("|%d|",ijC[i]);
         }
+        /*********************************************************************
+        ********************END Execute parallel SPRSTM***********************
+        ****************************************************************** */
     }
     else {
         //printf("I'm the slave #%d \n",rank);
-        /*Receive sA, ijA, sB, ijB*/
-        float sA[12];
-        long ijA[12];
-        float sBt[20];
-        long ijBt[20];
-        MPI_Recv(sA,  NMAX_A, MPI_FLOAT, 0, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
-        MPI_Recv(ijA, NMAX_A, MPI_LONG,  0, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
-        MPI_Recv(sBt,  NMAX_B, MPI_FLOAT, 0, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
-        MPI_Recv(ijBt, NMAX_B, MPI_LONG,  0, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
-        //printf("I'm the slave #%d: sA, ijA, sBt, ijBt received \n",rank);
-
-        /*
-         * Receive (i, j, counter) until receive FINALIZE
-         *  Given i, j compute sc, ijc
-         *  Send sc, ijc, stepCounter
-         * */
-        int cntLocalJobs=0;
         while(1) {
-            int i, j, stepCounter;
-            MPI_Recv(&i, 1, MPI_INT, 0, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
+            //printf("I'm the slave %d. Receiving...\n", rank);
+            unsigned long i,ijma, ijmb, j, ma, mb, mbb;
+            MPI_Recv(&i, 1, MPI_UNSIGNED_LONG, 0, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
             if (status.MPI_TAG == FINALIZE) {
                 //printf("I'm the slave %d. FINALIZE Received\n", rank);
                 break;
             }
-            MPI_Recv(&j, 1, MPI_INT, 0, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
-            cntLocalJobs++;
-            //printf("I'm the slave #%d: %d° job received \n",rank,cntLocalJobs);
-
-
-
-
+            MPI_Recv(&j, 1, MPI_UNSIGNED_LONG, 0, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
+            //printf("I'm the slave %d. Received (%d,%d)\n", rank, i, j);
 
             /*********************************************************************
-             *********************** Compute product******************************
+             *********************** Compute sum******************************
              ****************************************************************** */
-            unsigned long  ijma, ijmb,  k, ma, mb, mbb;
             float sum;
             if (i == j) {
-                sum = sA[i] * sBt[j];
+                sum = sA[i] * sB[j];
             }
             else {
                 sum = 0.0e0;
             }
-            mb = ijBt[j];
+            mb = ijB[j];
             for (ma = ijA[i]; ma <= ijA[i + 1] - 1; ma++) {//loop over elements of row i of A
                 ijma = ijA[ma];
-                if (ijma == j) sum += sA[ma] * sBt[j];
+                if (ijma == j) sum += sA[ma] * sB[j];
                 else {
-                    while (mb < ijBt[j + 1]) {//loop over elements of row i of B
-                        ijmb = ijBt[mb];
+                    while (mb < ijB[j + 1]) {//loop over elements of row i of B
+                        ijmb = ijB[mb];
                         if (ijmb == i) {
-                            sum += sA[i] * sBt[mb++];
+                            sum += sA[i] * sB[mb++];
                             continue;
                         } else if (ijmb < ijma) {
                             mb++;
                             continue;
                         } else if (ijmb == ijma) {
-                            sum += sA[ma] * sBt[mb++];
+                            sum += sA[ma] * sB[mb++];
                             continue;
                         }
                         break;
                     }
                 }
             }
-            for (mbb = mb; mbb <= ijBt[j + 1] - 1; mbb++) {
+            for (mbb = mb; mbb <= ijB[j + 1] - 1; mbb++) {
                 //Exhaust the remainder of B’s row.
-                if (ijBt[mbb] == i) sum += sA[i] * sBt[mbb];
+                if (ijB[mbb] == i) sum += sA[i] * sB[mbb];
             }
 
             /*********************************************************************
-             **********************End Compute product****************************
+             **********************End Compute sum****************************
              ****************************************************************** */
 
             /*
              * Send product
              * */
-
+            //printf("I'm the slave %d. Computed (%f,%d,%d)\n", rank,sum, i, j);
             MPI_Send(&sum,  1, MPI_FLOAT, 0, 0, MPI_COMM_WORLD);
-            MPI_Send(&i,  1, MPI_INT, 0, 0, MPI_COMM_WORLD);
-            MPI_Send(&j,  1, MPI_INT, 0, 0, MPI_COMM_WORLD);
-            //printf("I'm the slave #%d: %d° job computed and submitted \n",rank,cntLocalJobs);
+            MPI_Send(&i,  1, MPI_UNSIGNED_LONG, 0, 0, MPI_COMM_WORLD);
+            MPI_Send(&j,  1, MPI_UNSIGNED_LONG, 0, 0, MPI_COMM_WORLD);
         }
     }
     double end = MPI_Wtime();
     double elapsed = end - start;
-    printf("\nTotal elapsed time of node with rank %d: %f seconds\n", rank,elapsed );
+    //printf("\nTotal elapsed time of node with rank %d: %f seconds\n", rank,elapsed );
     MPI_FINALIZE();
 }
