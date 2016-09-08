@@ -255,11 +255,11 @@ int main(int argc, char *argv[]) {
         float *sCSer=malloc(sizeof *sCSer * (NMAX_C) );
         unsigned long *ijCSer=malloc(sizeof *ijCSer * (NMAX_C) );
 
-        clock_t ticSer = clock();
+        double ticSer = MPI_Wtime();
         int kSer=sprstm( sA,ijA, sB, ijB, THRESH, NMAX_C-1, sCSer, ijCSer);
-        clock_t tocSer = clock();
+        double tocSer = MPI_Wtime();
 
-        printf("\nSerial SPRSTM, Elapsed time: %f seconds\n", (double)(tocSer - ticSer) / CLOCKS_PER_SEC);
+        printf("\nSerial SPRSTM, Elapsed time: %f seconds\n", (tocSer - ticSer) );
         printf("\nResult sc:\n");
         for(i=1;i<=kSer-1;i++){
             if(i == ijCSer[1]-1){
@@ -279,7 +279,7 @@ int main(int argc, char *argv[]) {
         /*********************************************************************
         ********************** Execute parallel SPRSTM**************************
         ****************************************************************** */
-        clock_t tic = clock();
+        double tic = MPI_Wtime();
 
         /*Distribute workload*/
         int rowsPerNode=(ijA[1]-2)/size;
@@ -291,7 +291,7 @@ int main(int argc, char *argv[]) {
             }
             MPI_Send(&startIdx,  1, MPI_UNSIGNED_LONG, i, 0, MPI_COMM_WORLD);
             MPI_Send(&endIdx,  1, MPI_UNSIGNED_LONG, i, 0, MPI_COMM_WORLD);
-            printf("Processor: %d, start: %d, end: %d\n", i, startIdx, endIdx);
+            //printf("Processor: %d, start: %d, end: %d\n", i, startIdx, endIdx);
         }
 
         /*Receive & compose result*/
@@ -336,14 +336,14 @@ int main(int argc, char *argv[]) {
 
         }
 
-        clock_t toc = clock();
+        double toc = MPI_Wtime();
 
         /*Print Parallel SPRSTM Result*/
         if(isNmaxTooSmall==1){
             printf("NMAX_C too small");
         }
         else{
-            printf("\nParallel SPRSTM, Elapsed time: %f seconds\n", (double)(toc - tic) / CLOCKS_PER_SEC);
+            printf("\nParallel SPRSTM, Elapsed time: %f seconds\n", (toc - tic));
             printf("\nResult sc:\n");
             for(i=1;i<=k-1;i++){
                 if(i == ijc[1]-1){
@@ -428,7 +428,7 @@ int main(int argc, char *argv[]) {
         MPI_Send(&sums,  cntSums, MPI_FLOAT, 0, 0, MPI_COMM_WORLD);
         MPI_Send(&sumsI, cntSums, MPI_UNSIGNED_LONG, 0, 0, MPI_COMM_WORLD);
         MPI_Send(&sumsJ, cntSums, MPI_UNSIGNED_LONG, 0, 0, MPI_COMM_WORLD);
-        printf("Slave: %d, cntSums: %d\n", rank, cntSums);
+        //printf("Slave: %d, cntSums: %d\n", rank, cntSums);
 
     }
     double end = MPI_Wtime();
