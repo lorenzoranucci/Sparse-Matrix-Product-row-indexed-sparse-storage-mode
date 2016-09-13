@@ -5,11 +5,11 @@
 #include <time.h>
 #include <stdlib.h>
 #define NOT_NULL_ELEMENTS 1000
-#define N 2000
-#define NMAX_A 5000
-#define NMAX_B 5000
+#define N 1000
+#define NMAX_A 100000
+#define NMAX_B 100000
 #define NMAX_C 1000000
-#define THRESH 0.0
+#define THRESH 5.0
 #define FINALIZE 1
 
 
@@ -119,6 +119,7 @@ float ** initRandMat(int rows, int cols){
  * */
 void sprsin(float **a, int n, float thresh, unsigned long nmax, float sa[], unsigned long ija[]) {
     int i, j;
+    int nmaxSmall=0;
     unsigned long k;
     //Store diagonal elements.
 
@@ -135,14 +136,21 @@ void sprsin(float **a, int n, float thresh, unsigned long nmax, float sa[], unsi
         //Loop over columns.
         for (j = 1; j <= n; j++) {
             if (fabs(a[i][j]) >= thresh && i != j) {
-                if (++k > nmax) nrerror("sprsin: nmax too small");
+                if (++k > nmax){
+                    nmaxSmall=1;
+                    break;
+                }
                 //Store off-diagonal elements and their columns.
                 sa[k] = a[i][j];
                 ija[k] = j;
             }
         }
+        if(nmaxSmall==1)break;
         //As each row is completed, store index to next.
         ija[i + 1] = k + 1;
+    }
+    if(nmaxSmall==1){
+        printf("NMAX sprsin too small\n");
     }
 }
 /*Construct the transpose of a sparse square matrix, from row-index sparse storage arrays sa and
@@ -243,10 +251,10 @@ int main(int argc, char *argv[]) {
     /*Convert matrices in row-indexed sparse storage mode*/
     float *sA=malloc(NMAX_A * sizeof(float));
     unsigned long *ijA=malloc(NMAX_A * sizeof(unsigned long));
-    sprsin(matA, N, 0.1, NMAX_A-1, sA, ijA);
+    sprsin(matA, N, THRESH, NMAX_A-1, sA, ijA);
     float *sB=malloc(NMAX_B * sizeof(float));
     unsigned long *ijB=malloc(NMAX_B * sizeof(unsigned long));
-    sprsin(matB, N, 0.1, NMAX_B-1, sB, ijB);
+    sprsin(matB, N, THRESH, NMAX_B-1, sB, ijB);
 
     if (rank == 0) {
         unsigned long i , j;
@@ -260,7 +268,7 @@ int main(int argc, char *argv[]) {
         int kSer=sprstm( sA,ijA, sB, ijB, THRESH, NMAX_C-1, sCSer, ijCSer);
         double tocSer = MPI_Wtime();
 
-        printf("\nSerial SPRSTM, Elapsed time: %f seconds\n", (tocSer - ticSer) );
+        printf("\n*************Serial SPRSTM, Elapsed time: %f seconds*************\n", (tocSer - ticSer) );
         printf("\nResult sc:\n");
         for(i=1;i<=kSer-1;i++){
             if(i == ijCSer[1]-1){
@@ -360,7 +368,7 @@ int main(int argc, char *argv[]) {
             printf("NMAX_C too small");
         }
         else{
-            printf("\nParallel SPRSTM, Elapsed time: %f seconds\n", (toc - tic));
+            printf("\n\n\n*************Parallel SPRSTM, Elapsed time: %f seconds*************\n", (toc - tic));
             printf("\nResult sc:\n");
             for(i=1;i<=k-1;i++){
                 if(i == ijc[1]-1){
@@ -378,6 +386,7 @@ int main(int argc, char *argv[]) {
         /*********************************************************************
         ********************END Execute parallel SPRSTM***********************
         ****************************************************************** */
+        printf("\n\n*************Speedup: %f.*************\n",(tocSer - ticSer)-(toc - tic));
     }
     else {
         unsigned long startIdx, endIdx, cntSc, cntIjc,i,ijma, ijmb, j, ma, mb, mbb, k;
