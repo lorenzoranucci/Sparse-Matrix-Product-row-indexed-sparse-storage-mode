@@ -5,11 +5,12 @@
 #include <time.h>
 #include <stdlib.h>
 #define NOT_NULL_ELEMENTS 1000
-#define N 1000
+#define N 2000
 #define NMAX_A 5000
 #define NMAX_B 5000
 #define NMAX_C 1000000
 #define THRESH 0.0
+#define FINALIZE 1
 
 
 
@@ -163,7 +164,7 @@ int sprstm(float sa[], unsigned long ija[], float sb[], unsigned long ijb[],
     float sum;
     if (ija[1] != ijb[1]) nrerror("sprstm: sizes do not match");//Check if matrices have the same size
     ijc[1] = k = ija[1];//c size is the same as input matrices size
-    printf("\nSPRSTM Serial sums: \n");
+    //printf("\nSPRSTM Serial sums: \n");
     int cntStep=0;
     for (i = 1; i <= ija[1] - 2; i++) {//iterate from 1 to N of A
         //Loop over rows of A,
@@ -205,7 +206,7 @@ int sprstm(float sa[], unsigned long ija[], float sb[], unsigned long ijb[],
                 if (ijb[mbb] == i) sum += sa[i] * sb[mbb];
             }
 
-            //printf("|%d-%f|",cntStep,sum);
+            //printf("|%f|",sum);
 
             if (i == j)
                 sc[i] = sum;
@@ -282,10 +283,24 @@ int main(int argc, char *argv[]) {
         double tic = MPI_Wtime();
 
         /*Distribute workload*/
-        int rowsPerNode=(ijA[1]-2)/size;
+        int rowsPerSlave=(ijA[1]-2)/(size-1);
+        int rowsPerSlaveRest=(ijA[1]-2)%(size-1);
+        int activeSlaves=size-1;
+        if(size-1>ijA[1]-2){
+            activeSlaves=ijA[1]-2;
+        }
         for(i=1; i<size;i++){//iterate over processors
-            unsigned long startIdx=((i-1)*rowsPerNode)+1;
-            unsigned long endIdx=startIdx+rowsPerNode;
+            if(i>activeSlaves){
+                //send finalize to unnecessary slave
+                unsigned long startIdx=0;
+                MPI_Send(&startIdx,  1, MPI_UNSIGNED_LONG, i, FINALIZE, MPI_COMM_WORLD);
+                continue;
+            }
+            unsigned long startIdx=((i-1)*rowsPerSlave)+1;
+            unsigned long endIdx=startIdx+rowsPerSlave-1;
+            if(i==activeSlaves){
+                endIdx+=rowsPerSlaveRest;
+            }
             if(endIdx>ijA[1]-2){
                 endIdx=ijA[1]-2;
             }
@@ -301,6 +316,7 @@ int main(int argc, char *argv[]) {
         ijc[1]=k;
         int isNmaxTooSmall=0;
         unsigned long currentI=1;
+        //printf("\nSPRSTM Parallel sums: \n");
         for(i=1; i<size;i++) {//iterate over processors
             unsigned long cntSums;
             MPI_Recv(&cntSums, 1, MPI_UNSIGNED_LONG, i, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
@@ -315,6 +331,7 @@ int main(int argc, char *argv[]) {
 
             /*compose result*/
             for(j=1; j<cntSums;j++){
+                //printf("|%f|",sums[j]);
                 if(sumsI[j]==sumsJ[j]){
                     sc[sumsI[j]] = sums[j];
                 }
@@ -365,71 +382,73 @@ int main(int argc, char *argv[]) {
     else {
         unsigned long startIdx, endIdx, cntSc, cntIjc,i,ijma, ijmb, j, ma, mb, mbb, k;
         MPI_Recv(&startIdx, 1, MPI_UNSIGNED_LONG, 0, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
-        MPI_Recv(&endIdx, 1, MPI_UNSIGNED_LONG, 0, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
-        unsigned long rowsAToCompute=endIdx-startIdx+1;
-        unsigned long resultSize=rowsAToCompute*ijB[1] - 2;
-        float sum, sums[resultSize];
-        unsigned long sumsI[resultSize], sumsJ[resultSize];
-        unsigned long cntSums=1;
-        for (i = startIdx; i <= endIdx; i++) {
-            //Loop over rows of A,
-            for (j = 1; j <= ijB[1] - 2; j++) {//iterate from 1 to N of B
-                //and rows of B.
+        if (status.MPI_TAG != FINALIZE) {
+            MPI_Recv(&endIdx, 1, MPI_UNSIGNED_LONG, 0, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
+            unsigned long rowsAToCompute = endIdx - startIdx + 1;
+            //printf("\nSlave %d, start=%d, end=%d, rowsToCompute=%d\n", rank, startIdx, endIdx, rowsAToCompute);
+            unsigned long resultSize = rowsAToCompute * ijB[1] - 2;
+            float sum, sums[resultSize];
+            unsigned long sumsI[resultSize], sumsJ[resultSize];
+            //printf("\n%d:1",i);
+            unsigned long cntSums = 1;
+            for (i = startIdx; i <= endIdx; i++) {
+                //Loop over rows of A,
+                for (j = 1; j <= ijB[1] - 2; j++) {//iterate from 1 to N of B
+                    //and rows of B.
 
-                if (i == j) {
-                    sum = sA[i] * sB[j];
-                }
-                else {
-                    sum = 0.0e0;
-                }
-
-
-
-                mb = ijB[j];
-                for (ma = ijA[i]; ma <= ijA[i + 1] - 1; ma++) {//loop over elements of row i of A
-                    ijma = ijA[ma];
-                    if (ijma == j) sum += sA[ma] * sB[j];
+                    if (i == j) {
+                        sum = sA[i] * sB[j];
+                    }
                     else {
-                        while (mb < ijB[j + 1]) {//loop over elements of row i of B
-                            ijmb = ijB[mb];
-                            if (ijmb == i) {
-                                sum += sA[i] * sB[mb++];
-                                continue;
-                            } else if (ijmb < ijma) {
-                                mb++;
-                                continue;
-                            } else if (ijmb == ijma) {
-                                sum += sA[ma] * sB[mb++];
-                                continue;
+                        sum = 0.0e0;
+                    }
+
+
+                    mb = ijB[j];
+                    for (ma = ijA[i]; ma <= ijA[i + 1] - 1; ma++) {//loop over elements of row i of A
+                        ijma = ijA[ma];
+                        if (ijma == j) sum += sA[ma] * sB[j];
+                        else {
+                            while (mb < ijB[j + 1]) {//loop over elements of row i of B
+                                ijmb = ijB[mb];
+                                if (ijmb == i) {
+                                    sum += sA[i] * sB[mb++];
+                                    continue;
+                                } else if (ijmb < ijma) {
+                                    mb++;
+                                    continue;
+                                } else if (ijmb == ijma) {
+                                    sum += sA[ma] * sB[mb++];
+                                    continue;
+                                }
+                                break;
                             }
-                            break;
                         }
                     }
-                }
-                for (mbb = mb; mbb <= ijB[j + 1] - 1; mbb++) {
-                    //Exhaust the remainder of B’s row.
-                    if (ijB[mbb] == i) sum += sA[i] * sB[mbb];
-                }
+                    for (mbb = mb; mbb <= ijB[j + 1] - 1; mbb++) {
+                        //Exhaust the remainder of B’s row.
+                        if (ijB[mbb] == i) sum += sA[i] * sB[mbb];
+                    }
 
-                if (i == j || fabs(sum) > THRESH){
-                    sums[cntSums]=sum;
-                    sumsI[cntSums]=i;
-                    sumsJ[cntSums]=j;
-                    cntSums++;
-                }
+                    if (i == j || fabs(sum) > THRESH) {
+                        sums[cntSums] = sum;
+                        sumsI[cntSums] = i;
+                        sumsJ[cntSums] = j;
+                        cntSums++;
+                    }
 
+                }
             }
+            /*
+             * Send result
+             * */
+
+            MPI_Send(&cntSums, 1, MPI_UNSIGNED_LONG, 0, 0, MPI_COMM_WORLD);
+            MPI_Send(&sums, cntSums, MPI_FLOAT, 0, 0, MPI_COMM_WORLD);
+            MPI_Send(&sumsI, cntSums, MPI_UNSIGNED_LONG, 0, 0, MPI_COMM_WORLD);
+            MPI_Send(&sumsJ, cntSums, MPI_UNSIGNED_LONG, 0, 0, MPI_COMM_WORLD);
+            //printf("Slave: %d, cntSums: %d\n", rank, cntSums);
         }
-        /*
-         * Send result
-         * */
-
-        MPI_Send(&cntSums, 1, MPI_UNSIGNED_LONG, 0, 0, MPI_COMM_WORLD);
-        MPI_Send(&sums,  cntSums, MPI_FLOAT, 0, 0, MPI_COMM_WORLD);
-        MPI_Send(&sumsI, cntSums, MPI_UNSIGNED_LONG, 0, 0, MPI_COMM_WORLD);
-        MPI_Send(&sumsJ, cntSums, MPI_UNSIGNED_LONG, 0, 0, MPI_COMM_WORLD);
-        //printf("Slave: %d, cntSums: %d\n", rank, cntSums);
-
     }
     double end = MPI_Wtime();
     double elapsed = end - start;
