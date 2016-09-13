@@ -241,11 +241,11 @@ int main(int argc, char *argv[]) {
     float **matA=initRandMat(N,N);
     float **matB=initRandMat(N,N);
     /*Convert matrices in row-indexed sparse storage mode*/
-    float sA[NMAX_A];
-    unsigned long ijA[NMAX_A];
+    float *sA=malloc(NMAX_A * sizeof(float));
+    unsigned long *ijA=malloc(NMAX_A * sizeof(unsigned long));
     sprsin(matA, N, 0.1, NMAX_A-1, sA, ijA);
-    float sB[NMAX_B];
-    unsigned long ijB[NMAX_B];
+    float *sB=malloc(NMAX_B * sizeof(float));
+    unsigned long *ijB=malloc(NMAX_B * sizeof(unsigned long));
     sprsin(matB, N, 0.1, NMAX_B-1, sB, ijB);
 
     if (rank == 0) {
@@ -253,8 +253,8 @@ int main(int argc, char *argv[]) {
         /*********************************************************************
         ********************** Execute serial SPRSTM**************************
         ****************************************************************** */
-        float *sCSer=malloc(sizeof *sCSer * (NMAX_C) );
-        unsigned long *ijCSer=malloc(sizeof *ijCSer * (NMAX_C) );
+        float *sCSer=malloc(sizeof(float) * NMAX_C );
+        unsigned long *ijCSer=malloc(sizeof(unsigned long) * NMAX_C );
 
         double ticSer = MPI_Wtime();
         int kSer=sprstm( sA,ijA, sB, ijB, THRESH, NMAX_C-1, sCSer, ijCSer);
@@ -310,8 +310,8 @@ int main(int argc, char *argv[]) {
         }
 
         /*Receive & compose result*/
-        float sc[NMAX_C];
-        unsigned long ijc[NMAX_C];
+        float *sc=malloc(sizeof(float) * NMAX_C );
+        unsigned long *ijc=malloc(sizeof(unsigned long) * NMAX_C );
         int k=ijA[1];
         ijc[1]=k;
         int isNmaxTooSmall=0;
@@ -387,9 +387,11 @@ int main(int argc, char *argv[]) {
             unsigned long rowsAToCompute = endIdx - startIdx + 1;
             //printf("\nSlave %d, start=%d, end=%d, rowsToCompute=%d\n", rank, startIdx, endIdx, rowsAToCompute);
             unsigned long resultSize = rowsAToCompute * ijB[1] - 2;
-            float sum, sums[resultSize];
-            unsigned long sumsI[resultSize], sumsJ[resultSize];
-            //printf("\n%d:1",i);
+            float sum;
+            float *sums=malloc(sizeof(float) * resultSize );
+            unsigned long *sumsI=malloc(sizeof(unsigned long) * resultSize );
+            unsigned long *sumsJ=malloc(sizeof(unsigned long) * resultSize );
+
             unsigned long cntSums = 1;
             for (i = startIdx; i <= endIdx; i++) {
                 //Loop over rows of A,
@@ -444,9 +446,9 @@ int main(int argc, char *argv[]) {
              * */
 
             MPI_Send(&cntSums, 1, MPI_UNSIGNED_LONG, 0, 0, MPI_COMM_WORLD);
-            MPI_Send(&sums, cntSums, MPI_FLOAT, 0, 0, MPI_COMM_WORLD);
-            MPI_Send(&sumsI, cntSums, MPI_UNSIGNED_LONG, 0, 0, MPI_COMM_WORLD);
-            MPI_Send(&sumsJ, cntSums, MPI_UNSIGNED_LONG, 0, 0, MPI_COMM_WORLD);
+            MPI_Send(sums, cntSums, MPI_FLOAT, 0, 0, MPI_COMM_WORLD);
+            MPI_Send(sumsI, cntSums, MPI_UNSIGNED_LONG, 0, 0, MPI_COMM_WORLD);
+            MPI_Send(sumsJ, cntSums, MPI_UNSIGNED_LONG, 0, 0, MPI_COMM_WORLD);
             //printf("Slave: %d, cntSums: %d\n", rank, cntSums);
         }
     }
